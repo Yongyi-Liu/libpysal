@@ -10,6 +10,7 @@ import warnings
 import numpy as np
 import scipy.sparse
 from scipy.sparse.csgraph import connected_components
+from pandana.loaders import osm
 
 # from .util import full, WSP2W resolve import cycle by
 # forcing these into methods
@@ -1308,7 +1309,52 @@ class W(object):
             **node_kws
         )
         return f, ax
+    
+class network_W(W):
+   """
+   construct a W object based on a pandana network
+   
+   parameters
+   ----------
+   
+   df : DataFrame
+       df is a DataFrame that represents the objects out of which we want to
+       build the W object.
+       df must contains a column named "x", showing the longtitude and a column
+       named "y", showing the latitude.
+       
+   network : Network
+       network is a pandana Network object used to compute network distance
+       
+   distance : the maximum distance to look for pois in the network
+   max_neighbors : the number of pois to look for in the network object
 
+   
+   """
+    
+    def __init__(self , df ,  network , distance , max_neighbors , id_order=None, silence_warnings=False, ids=None):
+        osm_ids = network.get_node_ids(x_col = df.x , y_col = df.y).astype(int)
+        osm_ids.name = 'node_ids'
+        osm_ids = pd.DataFrame(osm_ids)
+        
+        network.set_pois("neighbors" , distance , max_neighbors , df.x , df.y)
+        neighbors = network.nearest_pois(distance , 'neighbors' , num_pois = max_neighbors , include_poi_ids = True)
+        
+        weights = neighbors.iloc[:,:max_neighbors]
+        ids = neighbors.iloc[:,max_neighbors:]
+        
+        ints = [col[3:] for col in ids.columns]
+        ids.columns = ints
+        
+        ids = osm_ids.merge(ids , left_on = 'node_ids' , right_index = True , how = 'left').drop(columns=['node_ids'])
+        weights = osm_ids.merge(weights , left_on='node_ids', right_index = True , how = 'left').drop(columns=['node_ids'])
+        
+        id_dict={k:v.dropna().astype(df.index.dtype).tolist() for k,v in ids.T.items()}
+        weights_dict = {k:v.dropna().astype(df.index.dtype).tolist()[:len(id_dict[k])] for k , v in weights.T.items()}
+        
+        super(network_W , self).__init__(id_dict , weights_dict , id_order , silence_warnings , ids)
+        
+        
 
 class WSP(object):
     """Thin ``W`` class for ``spreg``.
